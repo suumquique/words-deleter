@@ -47,7 +47,6 @@ int main(int argc, char* argv[]) {
 
 	sortedStackNode* directivesStackTopPtr = NULL;
 	directivesStackTopPtr = getDirectivesFromConfigFile(configFile, directivesStackTopPtr);
-	print_stack(directivesStackTopPtr);
 }
 
 sortedStackNode* getDirectivesFromConfigFile(FILE* configFile, sortedStackNode* startStackPtr) {
