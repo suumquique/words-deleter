@@ -3,25 +3,26 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <io.h>
 
 
-#pragma comment(linker, "/STACK:2000000")
-#pragma comment(linker, "/HEAP:6000000")
+#pragma comment(linker, "/STACK:300000000")
+#pragma comment(linker, "/HEAP:300000000")
 
 // Максимальное число символов, которое мы будем считывать из файла
-#define MAX_FILE_LENGTH 5000000
+#define MAX_FILE_LENGTH 250000000
 // Максимальная длина предложения из конфигурационного файла, которое требуется удалить из текста
 #define MAX_SENTENCE_LENGTH 2048
 
 // Константа, показывающая, что требуется удалить все совпадения
-#define ALL INT_MAX
+#define ALL ULLONG_MAX
 
 /* Некая смесь двух структур: сортированный однонаправленный список и стек.
 В начало добавляются директивы с параметром reverse = false, в конец идут с reverse = true.
 Затем с помощью функции pop() вынимаются элементы сверху стека, то есть сначала идут все директивы с reverse = true */
 typedef struct stackNode{
 	char* sentence;
-	size_t count;
+	unsigned long long count;
 	bool reverse;
 	struct stackNode* ptr_next;
 } sortedStackNode;
@@ -29,7 +30,7 @@ typedef struct stackNode{
 void insert(sortedStackNode** start_ptr, const char* string, size_t count, bool reverse);
 sortedStackNode* pop(sortedStackNode** top_ptr);
 sortedStackNode* getDirectivesFromConfigFile(FILE* configFile, sortedStackNode* startStackPtr);
-
+char* deleteAllMatchesInText(sortedStackNode* startStackWithMathesPtr, char* text);
 
 int main(int argc, char* argv[]) {
 	if (argc != 3) return puts("Specify the configuration file and the text file");
@@ -39,14 +40,24 @@ int main(int argc, char* argv[]) {
 
 	// Открываем текстовый файл и считываем весь текст в строку
 	char* text = (char*)calloc(MAX_FILE_LENGTH, sizeof(char));
-	for (size_t i = 0; i < MAX_FILE_LENGTH && !feof(textFile); i++) {
+	for (size_t i = 0; i < MAX_FILE_LENGTH; i++) {
 		text[i] = fgetc(textFile);
+		if (feof(textFile)) {
+			text[i] = '\0';
+			break;
+		}
 	}
+	
 	// Скидываем указатель назад на начало файла
 	rewind(textFile);
 
 	sortedStackNode* directivesStackTopPtr = NULL;
 	directivesStackTopPtr = getDirectivesFromConfigFile(configFile, directivesStackTopPtr);
+	// Получаем текст, из которого уже удалены все требуемые слова/предложения, указанные в конфигурационном файле
+	char* textWithoutSentences = deleteAllMatchesInText(directivesStackTopPtr, text);
+	// Очищаем основной файл
+	_chsize(fileno(textFile), 0);
+	fputs(textWithoutSentences, textFile);
 }
 
 sortedStackNode* getDirectivesFromConfigFile(FILE* configFile, sortedStackNode* startStackPtr) {
@@ -77,11 +88,53 @@ sortedStackNode* getDirectivesFromConfigFile(FILE* configFile, sortedStackNode* 
 		for (i = 0; (isdigit(directive[i]) && i) || (i == 0 && (directive[0] == '#' || directive[0] == '^')); i++);
 		char* currentLineToDelete = (char*)malloc((directiveLen + 1) * sizeof(char));
 		strcpy(currentLineToDelete, &directive[i]);
+		if (!strlen(currentLineToDelete)) continue;
 		// Добавляем результат в наш стек-список
 		insert(&startStackPtr, currentLineToDelete, count, reverse);
 	}
 
 	return startStackPtr;
+}
+
+char* deleteAllMatchesInText(sortedStackNode* startStackWithMathesPtr, char* text) {
+	sortedStackNode* currentDirective = pop(&startStackWithMathesPtr);
+	
+	// Указатель на начало найденного совпадения части текста с удаляемым предложением/словом
+	char* startMatchPtr;
+	
+	bool isTextReversed = false;
+	while (currentDirective != NULL) {
+		// Если надо удалять слова с конца, разворачиваем искомую строку, так как текст тоже развернут
+		if (currentDirective->reverse) {
+			// Если текст еще не развернут, то разворачиваем весь имеющийся на данный момент текст
+			if (!isTextReversed) {
+				text = _strrev(text);
+				isTextReversed = true;
+			}
+	
+			_strrev(currentDirective->sentence);
+		}
+
+		size_t searchedSentenceLength = strlen(currentDirective->sentence);
+		// Ищем указатель на первый вход удаляемой подстроки в основную строку(текст)
+		startMatchPtr = strstr(text, currentDirective->sentence);
+		/* Идем по циклу, удаляя указанную в текущей директиве строку (слово) до тех пор, пока либо их не останется,
+		либо не будет достигнуто требуемое число удалений*/
+		for (unsigned long long i = 0; i < currentDirective->count && startMatchPtr != NULL; i++) {
+			memmove(startMatchPtr, startMatchPtr + searchedSentenceLength, 1 + strlen(startMatchPtr + searchedSentenceLength));
+			startMatchPtr = strstr(startMatchPtr, currentDirective->sentence);
+		}
+		
+		// Очищаем память, выделенную под предыдущую директиву, и получаем из стека новую
+		free(currentDirective->sentence);
+		free(currentDirective);
+		currentDirective = pop(&startStackWithMathesPtr);
+	}
+
+	// Если мы разворачивали текст, то вернем назад
+	if (isTextReversed) text = _strrev(text);
+	
+	return text;
 }
 
 void insert(sortedStackNode** start_ptr, const char* string, size_t count, bool reverse) {
