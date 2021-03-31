@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <io.h>
+#include <time.h>
 
 
 #pragma comment(linker, "/STACK:300000000")
@@ -38,6 +39,7 @@ int main(int argc, char* argv[]) {
 	FILE* configFile = fopen(argv[1], "r+");
 	FILE* textFile = fopen(argv[2], "r+");
 
+	clock_t start = clock();
 	// Открываем текстовый файл и считываем весь текст в строку
 	char* text = (char*)calloc(MAX_FILE_LENGTH, sizeof(char));
 	for (size_t i = 0; i < MAX_FILE_LENGTH; i++) {
@@ -56,8 +58,11 @@ int main(int argc, char* argv[]) {
 	// Получаем текст, из которого уже удалены все требуемые слова/предложения, указанные в конфигурационном файле
 	char* textWithoutSentences = deleteAllMatchesInText(directivesStackTopPtr, text);
 	// Очищаем основной файл
-	_chsize(fileno(textFile), 0);
+	_chsize(_fileno(textFile), 0);
 	fputs(textWithoutSentences, textFile);
+
+	clock_t stop = clock();
+	printf("Execution time: %g seconds", ( (double) stop - (double) start) /(double) CLK_TCK);
 }
 
 sortedStackNode* getDirectivesFromConfigFile(FILE* configFile, sortedStackNode* startStackPtr) {
